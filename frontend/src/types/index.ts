@@ -83,4 +83,5 @@ export interface GatewayConfig {
   host: string;
   corsOrigins: string[];
   logLevel: string;
+  authToken?: string;
 }

@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
-import type { FormEvent } from 'react';
+import { useState, useEffect, FormEvent } from 'react';
 import { channelApi, difyApi } from '../api';
-import type { ChannelConfig, DifyConfig, DifyApp, DingTalkConfig, FeishuConfig } from '../types';
+import type { ChannelConfig, DifyConfig, DifyApp } from '../types';
+import { toast } from 'sonner';
+import { Plus, TestTube, Trash2, ToggleLeft, ToggleRight, Webhook, MessageSquare, Bot } from 'lucide-react';
 
 export default function ChannelsPage() {
   const [channels, setChannels] = useState<ChannelConfig[]>([]);
@@ -11,25 +12,16 @@ export default function ChannelsPage() {
   const [showForm, setShowForm] = useState(false);
   const [platform, setPlatform] = useState<'dingtalk' | 'feishu'>('dingtalk');
   const [formData, setFormData] = useState({
-    name: '',
-    clientId: '',
-    clientSecret: '',
-    botAppId: '',
-    appId: '',
-    appSecret: '',
-    difyInstanceId: '',
-    difyAppId: '',
-    appApiKey: ''
+    name: '', clientId: '', clientSecret: '', botAppId: '',
+    appId: '', appSecret: '', difyInstanceId: '', difyAppId: '', appApiKey: ''
   });
 
   const loadChannels = async () => {
     try {
       const res = await channelApi.list();
-      if (res.data.success) {
-        setChannels(res.data.data || []);
-      }
-    } catch (error) {
-      console.error('Failed to load channels:', error);
+      if (res.data.success) setChannels(res.data.data || []);
+    } catch {
+      toast.error('加载频道列表失败');
     } finally {
       setLoading(false);
     }
@@ -41,291 +33,197 @@ export default function ChannelsPage() {
       if (res.data.success) {
         const instances = res.data.data || [];
         setDifyInstances(instances);
-        // Load apps for each instance
-        for (const instance of instances) {
+        for (const inst of instances) {
           try {
-            const appsRes = await difyApi.listApps(instance.id);
-            if (appsRes.data.success) {
-              setDifyApps(prev => ({ ...prev, [instance.id]: appsRes.data.data || [] }));
-            }
+            const r = await difyApi.listApps(inst.id);
+            if (r.data.success) setDifyApps(prev => ({ ...prev, [inst.id]: r.data.data || [] }));
           } catch {
-            setDifyApps(prev => ({ ...prev, [instance.id]: [] }));
+            setDifyApps(prev => ({ ...prev, [inst.id]: [] }));
           }
         }
       }
-    } catch (error) {
-      console.error('Failed to load Dify instances:', error);
+    } catch {
+      toast.error('加载 Dify 实例失败');
     }
   };
 
-  useEffect(() => {
-    loadChannels();
-    loadDifyInstances();
-  }, []);
+  useEffect(() => { loadChannels(); loadDifyInstances(); }, []);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     try {
-      let config: DingTalkConfig | FeishuConfig;
-
+      let config: any;
       if (platform === 'dingtalk') {
-        config = {
-          clientId: formData.clientId,
-          clientSecret: formData.clientSecret,
-          botAppId: formData.botAppId
-        };
+        config = { clientId: formData.clientId, clientSecret: formData.clientSecret, botAppId: formData.botAppId };
       } else {
-        config = {
-          appId: formData.appId,
-          appSecret: formData.appSecret
-        };
+        config = { appId: formData.appId, appSecret: formData.appSecret };
       }
-
-      await channelApi.create({
-        platform,
-        name: formData.name,
-        difyInstanceId: formData.difyInstanceId,
-        difyAppId: formData.difyAppId,
-        config
-      });
-
-      // Set app API key separately if provided
-      if (formData.appApiKey) {
-        const channelsRes = await channelApi.list();
-        if (channelsRes.data.success) {
-          const newChannel = (channelsRes.data.data || []).find(
-            c => c.difyInstanceId === formData.difyInstanceId && c.difyAppId === formData.difyAppId
-          );
-          if (newChannel) {
-            await channelApi.setAppApiKey(newChannel.id, formData.appApiKey);
-          }
-        }
+      const res = await channelApi.create({ platform, name: formData.name,
+        difyInstanceId: formData.difyInstanceId, difyAppId: formData.difyAppId, config });
+      if (res.data.success && res.data.data && formData.appApiKey) {
+        await channelApi.setAppApiKey(res.data.data.id, formData.appApiKey);
       }
-
-      setFormData({
-        name: '',
-        clientId: '',
-        clientSecret: '',
-        botAppId: '',
-        appId: '',
-        appSecret: '',
-        difyInstanceId: '',
-        difyAppId: '',
-        appApiKey: ''
-      });
+      toast.success('频道创建成功');
+      setFormData({ name: '', clientId: '', clientSecret: '', botAppId: '',
+        appId: '', appSecret: '', difyInstanceId: '', difyAppId: '', appApiKey: '' });
       setShowForm(false);
       loadChannels();
-    } catch (error) {
-      console.error('Failed to create channel:', error);
+    } catch {
+      toast.error('创建频道失败');
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('确定要删除此频道吗？')) return;
+  const handleDelete = async (id: string, name: string) => {
+    if (!confirm(`确定要删除频道「${name}」吗？`)) return;
     try {
       await channelApi.delete(id);
+      toast.success('频道已删除');
       loadChannels();
-    } catch (error) {
-      console.error('Failed to delete:', error);
+    } catch {
+      toast.error('删除失败');
     }
   };
 
   const handleTest = async (id: string) => {
     try {
       const res = await channelApi.test(id);
-      alert(res.data.success ? res.data.message : `测试失败: ${res.data.error}`);
-    } catch (error) {
-      alert('测试失败');
+      if (res.data.success) toast.success(res.data.message || '连接成功');
+      else toast.error(res.data.error || '连接失败');
+    } catch {
+      toast.error('测试失败');
     }
   };
 
-  const handleToggle = async (channel: ChannelConfig) => {
+  const handleToggle = async (ch: ChannelConfig) => {
     try {
-      await channelApi.update(channel.id, { enabled: !channel.enabled });
+      await channelApi.update(ch.id, { enabled: !ch.enabled });
+      toast.success(ch.enabled ? '已禁用' : '已启用');
       loadChannels();
-    } catch (error) {
-      console.error('Failed to toggle:', error);
+    } catch {
+      toast.error('操作失败');
     }
   };
 
-  const handleShowWebhookUrl = async (id: string) => {
+  const handleShowWebhook = async (id: string) => {
     try {
       const res = await channelApi.getWebhookUrl(id);
       if (res.data.success && res.data.data) {
         const url = res.data.data.webhookUrl || res.data.data.dingtalkUrl || res.data.data.feishuUrl;
-        alert(`Webhook URL:\n${url}\n\n请将此 URL 配置到对应平台的回调地址中。`);
+        toast.message(
+          <div>
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>Webhook URL</div>
+            <div style={{ fontSize: 12, wordBreak: 'break-all' }}>{url}</div>
+            <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>请将此 URL 配置到平台回调地址</div>
+          </div>
+        );
       }
-    } catch (error) {
-      alert('获取 Webhook URL 失败');
+    } catch {
+      toast.error('获取 Webhook URL 失败');
     }
   };
 
-  const getPlatformName = (p: string) => {
-    const map: Record<string, string> = {
-      dingtalk: '钉钉',
-      feishu: '飞书',
-      wechat: '企业微信',
-      wecom: '企业微信'
-    };
-    return map[p] || p;
-  };
-
-  const getDifyInstanceName = (instanceId: string) => {
-    const instance = difyInstances.find(i => i.id === instanceId);
-    return instance?.name || instanceId;
-  };
-
-  if (loading) {
-    return <div className="loading">加载中...</div>;
-  }
-
+  const getPlatformName = (p: string) => ({ dingtalk: '钉钉', feishu: '飞书', wechat: '企业微信', wecom: '企业微信' }[p] || p);
+  const getDifyName = (id: string) => difyInstances.find(i => i.id === id)?.name || id;
   const currentApps = formData.difyInstanceId ? (difyApps[formData.difyInstanceId] || []) : [];
+
+  if (loading) return <div className="loading-state"><div className="loading-spinner" /><span>加载中...</span></div>;
 
   return (
     <div>
       <div className="page-header">
         <h1 className="page-title">频道管理</h1>
-        <p className="page-description">配置钉钉、飞书等平台的机器人频道，并绑定 Dify 应用</p>
+        <p className="page-description">配置钉钉/飞书机器人频道，并绑定 Dify 应用</p>
       </div>
 
       <div className="card">
-        <div className="flex flex-between mb-16">
-          <div className="card-title" style={{ margin: 0, padding: 0, border: 'none' }}>
-            已配置的频道 ({channels.length})
-          </div>
-          <button className="btn btn-primary" onClick={() => setShowForm(!showForm)}>
-            {showForm ? '取消' : '添加频道'}
+        <div className="card-title">
+          <span>已配置 ({channels.length})</span>
+          <button className="btn btn-primary btn-sm" onClick={() => setShowForm(!showForm)}>
+            <Plus size={14} /> {showForm ? '取消' : '添加频道'}
           </button>
         </div>
 
+        {/* Form */}
         {showForm && (
-          <form onSubmit={handleSubmit} className="mb-16">
-            <div className="form-item">
-              <label className="form-label">平台</label>
-              <select
-                className="form-input"
-                value={platform}
-                onChange={e => setPlatform(e.target.value as 'dingtalk' | 'feishu')}
-              >
-                <option value="dingtalk">钉钉</option>
-                <option value="feishu">飞书</option>
-              </select>
+          <form onSubmit={handleSubmit} style={{ maxWidth: 560, marginBottom: 24 }}>
+            {/* Platform selector */}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+              {(['dingtalk', 'feishu'] as const).map(p => (
+                <button type="button" key={p} onClick={() => setPlatform(p)}
+                  style={{
+                    flex: 1, padding: '10px 0', borderRadius: 10,
+                    border: `2px solid ${platform === p ? '#2563eb' : '#e2e8f0'}`,
+                    background: platform === p ? '#eff6ff' : 'white',
+                    color: platform === p ? '#2563eb' : '#64748b',
+                    fontWeight: 600, fontSize: 14, cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6
+                  }}>
+                  {p === 'dingtalk' ? <MessageSquare size={16} /> : <Bot size={16} />}
+                  {p === 'dingtalk' ? '钉钉' : '飞书'}
+                </button>
+              ))}
             </div>
-            <div className="form-item">
+
+            <div className="form-group">
               <label className="form-label">频道名称</label>
-              <input
-                type="text"
-                className="form-input"
-                value={formData.name}
-                onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                placeholder="例如：测试机器人"
-                required
-              />
+              <input className="form-input" value={formData.name}
+                onChange={e => setFormData(p => ({ ...p, name: e.target.value }))}
+                placeholder="例如：客服机器人" required />
             </div>
 
-            {/* Dify binding section */}
-            <div className="form-item">
-              <label className="form-label">绑定 Dify 实例</label>
-              <select
-                className="form-input"
-                value={formData.difyInstanceId}
-                onChange={e => setFormData(prev => ({ ...prev, difyInstanceId: e.target.value, difyAppId: '' }))}
-                required
-              >
-                <option value="">请选择 Dify 实例</option>
-                {difyInstances.map(instance => (
-                  <option key={instance.id} value={instance.id}>
-                    {instance.name} ({instance.baseUrl})
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="form-item">
-              <label className="form-label">绑定 Dify 应用</label>
-              <select
-                className="form-input"
-                value={formData.difyAppId}
-                onChange={e => setFormData(prev => ({ ...prev, difyAppId: e.target.value }))}
-                required
-                disabled={!formData.difyInstanceId}
-              >
-                <option value="">请先选择 Dify 实例</option>
-                {currentApps.map(app => (
-                  <option key={app.id} value={app.id}>
-                    {app.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="form-item">
-              <label className="form-label">应用 API Key (Dify App API Key)</label>
-              <input
-                type="password"
-                className="form-input"
-                value={formData.appApiKey}
-                onChange={e => setFormData(prev => ({ ...prev, appApiKey: e.target.value }))}
-                placeholder="每个 Dify 应用有独立的 API Key，用于对话接口鉴权"
-                required
-              />
-              <small style={{ color: '#888', fontSize: '12px' }}>
-                在 Dify 应用详情页的「API 访问」中获取 app-specific API Key
-              </small>
+            {/* Dify binding */}
+            <div style={{ padding: '12px 16px', background: '#f8fafc', borderRadius: 12, marginBottom: 20, border: '1px solid #e2e8f0' }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#64748b', marginBottom: 12 }}>绑定 Dify</div>
+              <div className="form-group">
+                <label className="form-label">Dify 实例</label>
+                <select className="form-input" value={formData.difyInstanceId}
+                  onChange={e => setFormData(p => ({ ...p, difyInstanceId: e.target.value, difyAppId: '' }))} required>
+                  <option value="">请选择 Dify 实例</option>
+                  {difyInstances.map(i => <option key={i.id} value={i.id}>{i.name} ({i.baseUrl})</option>)}
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Dify 应用</label>
+                <select className="form-input" value={formData.difyAppId}
+                  onChange={e => setFormData(p => ({ ...p, difyAppId: e.target.value }))} required
+                  disabled={!formData.difyInstanceId}>
+                  <option value="">{formData.difyInstanceId ? '请选择应用' : '请先选择 Dify 实例'}</option>
+                  {currentApps.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">应用 API Key</label>
+                <input type="password" className="form-input" value={formData.appApiKey}
+                  onChange={e => setFormData(p => ({ ...p, appApiKey: e.target.value }))}
+                  placeholder="Dify 应用专属 Key，在应用「访问 API」页获取" required />
+              </div>
             </div>
 
-            {/* Platform config section */}
+            {/* Platform config */}
             {platform === 'dingtalk' ? (
               <>
-                <div className="form-item">
+                <div className="form-group">
                   <label className="form-label">Client ID</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    value={formData.clientId}
-                    onChange={e => setFormData(prev => ({ ...prev, clientId: e.target.value }))}
-                    required
-                  />
+                  <input className="form-input" value={formData.clientId}
+                    onChange={e => setFormData(p => ({ ...p, clientId: e.target.value }))} required />
                 </div>
-                <div className="form-item">
+                <div className="form-group">
                   <label className="form-label">Client Secret</label>
-                  <input
-                    type="password"
-                    className="form-input"
-                    value={formData.clientSecret}
-                    onChange={e => setFormData(prev => ({ ...prev, clientSecret: e.target.value }))}
-                    required
-                  />
-                </div>
-                <div className="form-item">
-                  <label className="form-label">机器人 App ID (可选)</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    value={formData.botAppId}
-                    onChange={e => setFormData(prev => ({ ...prev, botAppId: e.target.value }))}
-                  />
+                  <input type="password" className="form-input" value={formData.clientSecret}
+                    onChange={e => setFormData(p => ({ ...p, clientSecret: e.target.value }))} required />
                 </div>
               </>
             ) : (
               <>
-                <div className="form-item">
+                <div className="form-group">
                   <label className="form-label">App ID</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    value={formData.appId}
-                    onChange={e => setFormData(prev => ({ ...prev, appId: e.target.value }))}
-                    required
-                  />
+                  <input className="form-input" value={formData.appId}
+                    onChange={e => setFormData(p => ({ ...p, appId: e.target.value }))} required />
                 </div>
-                <div className="form-item">
+                <div className="form-group">
                   <label className="form-label">App Secret</label>
-                  <input
-                    type="password"
-                    className="form-input"
-                    value={formData.appSecret}
-                    onChange={e => setFormData(prev => ({ ...prev, appSecret: e.target.value }))}
-                    required
-                  />
+                  <input type="password" className="form-input" value={formData.appSecret}
+                    onChange={e => setFormData(p => ({ ...p, appSecret: e.target.value }))} required />
                 </div>
               </>
             )}
@@ -334,62 +232,56 @@ export default function ChannelsPage() {
           </form>
         )}
 
-        {channels.length === 0 ? (
-          <div className="empty">暂无配置的频道，点击上方按钮添加</div>
-        ) : (
-          <table className="table">
-            <thead>
-              <tr>
-                <th>名称</th>
-                <th>平台</th>
-                <th>绑定 Dify</th>
-                <th>状态</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {channels.map(channel => (
-                <tr key={channel.id}>
-                  <td>{channel.name}</td>
-                  <td>{getPlatformName(channel.platform)}</td>
-                  <td>{getDifyInstanceName(channel.difyInstanceId)}</td>
-                  <td>
-                    <span className={`badge ${channel.enabled ? 'badge-success' : 'badge-warning'}`}>
-                      {channel.enabled ? '已启用' : '已禁用'}
-                    </span>
-                  </td>
-                  <td>
-                    <div className="flex gap-8">
-                      <button
-                        className="btn btn-default btn-sm"
-                        onClick={() => handleToggle(channel)}
-                      >
-                        {channel.enabled ? '禁用' : '启用'}
-                      </button>
-                      <button
-                        className="btn btn-default btn-sm"
-                        onClick={() => handleTest(channel.id)}
-                      >
-                        测试
-                      </button>
-                      <button
-                        className="btn btn-default btn-sm"
-                        onClick={() => handleShowWebhookUrl(channel.id)}
-                      >
-                        Webhook
-                      </button>
-                      <button
-                        className="btn btn-danger btn-sm"
-                        onClick={() => handleDelete(channel.id)}
-                      >
-                        删除
-                      </button>
-                    </div>
-                  </td>
+        {/* Empty */}
+        {channels.length === 0 && !showForm && (
+          <div className="empty-state">
+            <div className="empty-state-icon">💬</div>
+            <div className="empty-state-title">暂无频道</div>
+            <div className="empty-state-desc">点击上方「添加频道」开始配置</div>
+          </div>
+        )}
+
+        {/* Table */}
+        {channels.length > 0 && (
+          <div className="table-wrapper">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>名称</th><th>平台</th><th>绑定 Dify</th><th>状态</th><th style={{ width: 320 }}>操作</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {channels.map(ch => (
+                  <tr key={ch.id}>
+                    <td style={{ fontWeight: 600 }}>{ch.name}</td>
+                    <td><span className="badge badge-info">{getPlatformName(ch.platform)}</span></td>
+                    <td style={{ fontSize: 13, color: '#64748b' }}>{getDifyName(ch.difyInstanceId)}</td>
+                    <td>
+                      <span className={`badge ${ch.enabled ? 'badge-success' : 'badge-warning'}`}>
+                        {ch.enabled ? '● 已启用' : '○ 已禁用'}
+                      </span>
+                    </td>
+                    <td>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        <button className="btn btn-outline btn-sm" onClick={() => handleToggle(ch)}>
+                          {ch.enabled ? <><ToggleRight size={14} /> 禁用</> : <><ToggleLeft size={14} /> 启用</>}
+                        </button>
+                        <button className="btn btn-outline btn-sm" onClick={() => handleTest(ch.id)}>
+                          <TestTube size={14} /> 测试
+                        </button>
+                        <button className="btn btn-outline btn-sm" onClick={() => handleShowWebhook(ch.id)}>
+                          <Webhook size={14} /> Webhook
+                        </button>
+                        <button className="btn btn-danger btn-sm" onClick={() => handleDelete(ch.id, ch.name)}>
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>
