@@ -3,18 +3,37 @@
   "version": "1.0.0",
   "description": "AI Gateway for connecting Dify knowledge base with DingTalk and Feishu bots",
   "private": true,
+  "bin": {
+    "openlink": "./backend/dist/cli/openlink.js"
+  },
   "workspaces": [
     "backend",
     "frontend"
   ],
   "scripts": {
+    "openlink": "tsx backend/src/cli/openlink.ts",
+    "install:gateway": "npm install && npm run build -w backend && npm run build -w frontend",
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
     "dev:backend": "npm run dev -w backend",
     "dev:frontend": "npm run dev -w frontend",
     "build": "npm run build -w backend && npm run build -w frontend",
-    "start": "npm run start -w backend"
+    "build:backend": "npm run build -w backend",
+    "build:frontend": "npm run build -w frontend",
+    "start": "tsx backend/src/cli/openlink.ts start",
+    "start:daemon": "tsx backend/src/cli/openlink.ts start --daemon",
+    "stop": "tsx backend/src/cli/openlink.ts stop",
+    "restart": "tsx backend/src/cli/openlink.ts restart",
+    "status": "tsx backend/src/cli/openlink.ts status",
+    "logs": "tsx backend/src/cli/openlink.ts logs --tail",
+    "config": "tsx backend/src/cli/openlink.ts config",
+    "gateway:start": "tsx backend/src/cli/openlink.ts start --daemon",
+    "gateway:stop": "tsx backend/src/cli/openlink.ts stop",
+    "gateway:restart": "tsx backend/src/cli/openlink.ts restart",
+    "gateway:status": "tsx backend/src/cli/openlink.ts status",
+    "gateway:logs": "tsx backend/src/cli/openlink.ts logs --tail"
   },
   "devDependencies": {
-    "concurrently": "^8.2.2"
+    "concurrently": "^8.2.2",
+    "tsx": "^4.7.1"
   }
 }

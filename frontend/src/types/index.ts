@@ -75,3 +75,10 @@ export interface ApiResponse<T = any> {
   error?: string;
   message?: string;
 }
+
+export interface GatewayConfig {
+  port: number;
+  host: string;
+  corsOrigins: string[];
+  logLevel: string;
+}

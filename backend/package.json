@@ -2,9 +2,15 @@
   "name": "openlink-gateway-backend",
   "version": "1.0.0",
   "description": "Backend for OpenLink Gateway",
+  "type": "module",
   "main": "dist/index.js",
+  "bin": {
+    "openlink": "dist/cli/openlink.js"
+  },
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "dev:cli": "tsx watch src/cli/openlink.ts",
+    "cli": "tsx src/cli/openlink.ts",
     "build": "tsc",
     "start": "node dist/index.js"
   },
