@@ -1,0 +1,21 @@
+[Unit]
+Description=OpenLink Gateway - AI Gateway for Dify + DingTalk + Feishu
+After=network.target
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=/home/%i/openlink-gateway
+ExecStart=/usr/bin/env node /home/%i/openlink-gateway/backend/dist/cli/openlink.js start
+Restart=on-failure
+RestartSec=10
+Environment=NODE_ENV=production
+Environment=OPENLINK_PORT=3000
+Environment=OPENLINK_HOST=0.0.0.0
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

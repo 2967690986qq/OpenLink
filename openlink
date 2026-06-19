@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# OpenLink Gateway - CLI entry point
+# Usage: ./openlink <command> [options]
+#
+# Examples:
+#   ./openlink start --daemon     Start gateway in background
+#   ./openlink stop               Stop gateway
+#   ./openlink status             Check status
+#   ./openlink logs --tail        Live log streaming
+#   ./openlink restart            Restart gateway
+#   ./openlink install            Install dependencies and build
+#   ./openlink dev                Development mode with live reload
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Check if dependencies are installed
+if [ ! -d "$SCRIPT_DIR/node_modules" ]; then
+  echo "Dependencies not found. Running first-time setup..."
+  echo ""
+  echo "  Installing dependencies..."
+  cd "$SCRIPT_DIR" && npm install
+fi
+
+# Check if backend is built, otherwise use tsx to run
+CLI_SRC="$SCRIPT_DIR/backend/src/cli/openlink.ts"
+CLI_DIST="$SCRIPT_DIR/backend/dist/cli/openlink.js"
+
+if [ -f "$CLI_DIST" ] && [ "$CLI_SRC" -ot "$CLI_DIST" ]; then
+  # Use compiled version
+  node "$CLI_DIST" "$@"
+else
+  # Use tsx for source execution
+  if command -v npx &> /dev/null; then
+    npx tsx "$CLI_SRC" "$@"
+  else
+    echo "Error: npx not found. Please install Node.js and npm first."
+    echo "Visit https://nodejs.org/ to install Node.js"
+    exit 1
+  fi
+fi
