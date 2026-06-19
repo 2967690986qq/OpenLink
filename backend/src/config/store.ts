@@ -13,6 +13,7 @@ export interface StoreConfig {
   gateway: GatewayConfig;
   difyInstances: DifyConfig[];
   channels: ChannelConfig[];
+  appApiKeys: Record<string, string>;
 }
 
 const defaultConfig: StoreConfig = {
@@ -23,7 +24,8 @@ const defaultConfig: StoreConfig = {
     logLevel: 'info'
   },
   difyInstances: [],
-  channels: []
+  channels: [],
+  appApiKeys: {}
 };
 
 class ConfigStore {
@@ -71,7 +73,7 @@ class ConfigStore {
   }
 
   reset(): void {
-    this.config = defaultConfig;
+    this.config = JSON.parse(JSON.stringify(defaultConfig));
     this.saveConfig(this.config);
   }
 }

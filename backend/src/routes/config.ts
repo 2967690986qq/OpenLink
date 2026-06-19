@@ -31,8 +31,18 @@ router.get('/all', (_req: Request, res: Response) => {
   res.json({ success: true, data: config } as ApiResponse);
 });
 
-// Reset config to defaults
-router.post('/reset', (_req: Request, res: Response) => {
+// Reset config to defaults — requires explicit confirmation to prevent accidental/malicious resets
+router.post('/reset', (req: Request, res: Response) => {
+  const { confirm } = req.body;
+
+  if (!confirm) {
+    res.status(400).json({
+      success: false,
+      error: 'Config reset requires confirmation. Send { "confirm": true } in request body.'
+    } as ApiResponse);
+    return;
+  }
+
   configStore.reset();
   res.json({ success: true, message: 'Config reset to defaults' } as ApiResponse);
 });

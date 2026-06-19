@@ -3,7 +3,11 @@ import { DifyConfig, DifyApp, ChatRequest, ChatResponse } from '../types/index.j
 import logger from '../utils/logger.js';
 
 export class DifyService {
-  private getClient(config: DifyConfig): AxiosInstance {
+  /**
+   * Create an axios client authenticated with Dify admin API key.
+   * Used for management operations (test connection, list apps, get app info).
+   */
+  private getAdminClient(config: DifyConfig): AxiosInstance {
     return axios.create({
       baseURL: config.baseUrl,
       headers: {
@@ -14,9 +18,25 @@ export class DifyService {
     });
   }
 
+  /**
+   * Create an axios client authenticated with a specific app's API key.
+   * Used for chat operations (blocking + streaming).
+   * Dify requires each app to use its own API key for /v1/chat-messages.
+   */
+  private getAppClient(baseUrl: string, appApiKey: string): AxiosInstance {
+    return axios.create({
+      baseURL: baseUrl,
+      headers: {
+        'Authorization': `Bearer ${appApiKey}`,
+        'Content-Type': 'application/json'
+      },
+      timeout: 30000
+    });
+  }
+
   async testConnection(config: DifyConfig): Promise<{ success: boolean; message: string }> {
     try {
-      const client = this.getClient(config);
+      const client = this.getAdminClient(config);
       const response = await client.get('/api/info');
       logger.info('Dify connection test successful', { baseUrl: config.baseUrl });
       return {
@@ -34,12 +54,10 @@ export class DifyService {
 
   async listApps(config: DifyConfig): Promise<DifyApp[]> {
     try {
-      const client = this.getClient(config);
+      const client = this.getAdminClient(config);
 
-      // Try to get apps from different API endpoints
-      // Dify v1 API structure
       const response = await client.get('/api/v1/apps', {
-        params: { page: 1, limit: 50 }
+        params: { page: 1, limit: 100 }
       });
 
       if (response.data?.data) {
@@ -59,11 +77,15 @@ export class DifyService {
     }
   }
 
-  async chat(config: DifyConfig, request: ChatRequest): Promise<ChatResponse> {
+  /**
+   * Send a chat message to a Dify app using blocking mode.
+   * Uses the app-specific API key for authentication via /v1/chat-messages endpoint.
+   */
+  async chat(config: DifyConfig, request: ChatRequest, appApiKey: string): Promise<ChatResponse> {
     try {
-      const client = this.getClient(config);
+      const client = this.getAppClient(config.baseUrl, appApiKey);
 
-      const response = await client.post('/api/chat-messages', {
+      const response = await client.post('/v1/chat-messages', {
         inputs: {},
         query: request.message,
         response_mode: 'blocking',
@@ -71,13 +93,13 @@ export class DifyService {
         user: request.userId || 'gateway-user'
       });
 
-      const data = response.data?.data;
+      const data = response.data;
 
       return {
-        messageId: data?.message_id || Date.now().toString(),
-        content: data?.answer || data?.content || '',
-        conversationId: data?.conversation_id || '',
-        usage: data?.usage ? {
+        messageId: data.message_id || Date.now().toString(),
+        content: data.answer || '',
+        conversationId: data.conversation_id || '',
+        usage: data.usage ? {
           promptTokens: data.usage.prompt_tokens || 0,
           completionTokens: data.usage.completion_tokens || 0,
           totalTokens: data.usage.total_tokens || 0
@@ -89,16 +111,21 @@ export class DifyService {
     }
   }
 
+  /**
+   * Send a chat message to a Dify app using streaming mode (SSE).
+   * Uses the app-specific API key for authentication via /v1/chat-messages endpoint.
+   */
   async streamChat(
     config: DifyConfig,
     request: ChatRequest,
+    appApiKey: string,
     onMessage: (content: string) => void
-  ): Promise<void> {
+  ): Promise<ChatResponse> {
     try {
-      const client = this.getClient(config);
+      const client = this.getAppClient(config.baseUrl, appApiKey);
 
       const response = await client.post(
-        '/api/chat-messages',
+        '/v1/chat-messages',
         {
           inputs: {},
           query: request.message,
@@ -111,7 +138,11 @@ export class DifyService {
         }
       );
 
-      return new Promise((resolve, reject) => {
+      let fullContent = '';
+      let conversationId = '';
+      let messageId = '';
+
+      return new Promise<ChatResponse>((resolve, reject) => {
         response.data.on('data', (chunk: Buffer) => {
           const lines = chunk.toString().split('\n');
           for (const line of lines) {
@@ -119,18 +150,39 @@ export class DifyService {
               try {
                 const data = JSON.parse(line.slice(6));
                 if (data.event === 'message' || data.event === 'agent_message') {
-                  onMessage(data.answer || data.content || '');
+                  const content = data.answer || data.content || '';
+                  fullContent += content;
+                  conversationId = data.conversation_id || conversationId;
+                  messageId = data.message_id || messageId;
+                  onMessage(content);
                 }
-                if (data.event === 'end') {
-                  resolve();
+                if (data.event === 'message_end') {
+                  resolve({
+                    messageId: messageId || Date.now().toString(),
+                    content: fullContent,
+                    conversationId: conversationId,
+                    usage: data.metadata?.usage ? {
+                      promptTokens: data.metadata.usage.prompt_tokens || 0,
+                      completionTokens: data.metadata.usage.completion_tokens || 0,
+                      totalTokens: data.metadata.usage.total_tokens || 0
+                    } : undefined
+                  });
                 }
-              } catch {}
+              } catch (parseError) {
+                logger.warn('Failed to parse SSE data line', { line: line.slice(0, 100) });
+              }
             }
           }
         });
 
         response.data.on('error', reject);
-        response.data.on('end', resolve);
+        response.data.on('end', () => {
+          resolve({
+            messageId: messageId || Date.now().toString(),
+            content: fullContent,
+            conversationId: conversationId,
+          });
+        });
       });
     } catch (error: any) {
       logger.error('Dify stream chat failed', { appId: request.appId, error: error.message });
@@ -140,7 +192,7 @@ export class DifyService {
 
   async getAppInfo(config: DifyConfig, appId: string): Promise<DifyApp | null> {
     try {
-      const client = this.getClient(config);
+      const client = this.getAdminClient(config);
       const response = await client.get(`/api/v1/apps/${appId}`);
 
       if (response.data?.data) {

@@ -6,6 +6,30 @@ const api = axios.create({
   timeout: 30000
 });
 
+// Auto-attach auth token from localStorage to every admin API request.
+// The token is set by the user in Settings or during initial setup.
+// If no token is stored, requests go through without auth header (open mode).
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('openlink_auth_token');
+  if (token) {
+    config.headers = config.headers || {};
+    config.headers['Authorization'] = `Bearer ${token}`;
+  }
+  return config;
+});
+
+// On 401/403 responses, redirect to a token setup prompt
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401 || error.response?.status === 403) {
+      // Store the error info so the UI can show a token setup dialog
+      localStorage.setItem('openlink_auth_error', error.response?.data?.error || 'Authentication required');
+    }
+    return Promise.reject(error);
+  }
+);
+
 // Dify APIs
 export const difyApi = {
   list: () => api.get<ApiResponse<DifyConfig[]>>('/dify'),
@@ -32,7 +56,7 @@ export const difyApi = {
 export const channelApi = {
   list: () => api.get<ApiResponse<ChannelConfig[]>>('/channels'),
 
-  create: (data: { platform: string; name: string; config: any }) =>
+  create: (data: { platform: string; name: string; difyInstanceId: string; difyAppId: string; config: any; appApiKey?: string }) =>
     api.post<ApiResponse<ChannelConfig>>('/channels', data),
 
   update: (id: string, data: Partial<ChannelConfig>) =>
@@ -42,7 +66,12 @@ export const channelApi = {
 
   test: (id: string) => api.post<ApiResponse>(`/channels/${id}/test`),
 
-  getBot: (id: string) => api.get<ApiResponse>(`/channels/${id}/bot`)
+  getBot: (id: string) => api.get<ApiResponse>(`/channels/${id}/bot`),
+
+  setAppApiKey: (id: string, appApiKey: string) =>
+    api.post<ApiResponse>(`/channels/${id}/appApiKey`, { appApiKey }),
+
+  getWebhookUrl: (id: string) => api.get<ApiResponse>(`/channels/${id}/webhookUrl`)
 };
 
 // Config APIs
@@ -53,7 +82,7 @@ export const configApi = {
 
   getAll: () => api.get<ApiResponse>('/config/all'),
 
-  reset: () => api.post<ApiResponse>('/config/reset')
+  reset: () => api.post<ApiResponse>('/config/reset', { confirm: true })
 };
 
 export default api;

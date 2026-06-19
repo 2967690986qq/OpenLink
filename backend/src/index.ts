@@ -8,6 +8,8 @@ import logger from './utils/logger.js';
 import difyRoutes from './routes/dify.js';
 import channelRoutes from './routes/channels.js';
 import configRoutes from './routes/config.js';
+import webhookRoutes from './routes/webhook.js';
+import { authMiddleware } from './utils/auth.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -26,6 +28,8 @@ app.use(cors({
 app.use(express.json());
 
 app.use((req, _res, next) => {
+  // Log request with method and path only; sensitive fields in body
+  // are already redacted by the logger's sensitiveRedactFormat.
   logger.info(`${req.method} ${req.path}`, { query: req.query, body: req.body });
   next();
 });
@@ -47,15 +51,20 @@ app.get('/', (_req, res) => {
       dify: '/api/dify',
       channels: '/api/channels',
       config: '/api/config',
+      webhook: '/api/webhook',
       health: '/health'
     },
     web_ui: `http://localhost:${PORT}/ui/`
   });
 });
 
-app.use('/api/dify', difyRoutes);
-app.use('/api/channels', channelRoutes);
-app.use('/api/config', configRoutes);
+// Admin API routes — protected by auth middleware (Bearer token)
+app.use('/api/dify', authMiddleware, difyRoutes);
+app.use('/api/channels', authMiddleware, channelRoutes);
+app.use('/api/config', authMiddleware, configRoutes);
+
+// Webhook routes — exempt from auth (platform callbacks can't carry custom headers)
+app.use('/api/webhook', webhookRoutes);
 
 if (fs.existsSync(FRONTEND_DIST)) {
   // Serve static assets (JS/CSS) from root /assets so HTML references work

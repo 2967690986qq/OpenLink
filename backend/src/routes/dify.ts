@@ -154,7 +154,7 @@ router.get('/:id/apps', async (req: Request, res: Response) => {
 router.post('/:id/chat', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { appId, message, conversationId, userId } = req.body as ChatRequest;
+    const { appId, message, conversationId, userId, appApiKey } = req.body;
 
     const instances = configStore.get('difyInstances');
     const instance = instances.find(i => i.id === id);
@@ -164,12 +164,30 @@ router.post('/:id/chat', async (req: Request, res: Response) => {
       return;
     }
 
+    if (!appApiKey) {
+      // Try to find stored appApiKey
+      const storedKeys = configStore.get('appApiKeys') as Record<string, string>;
+      const storedKey = storedKeys[appId];
+      if (!storedKey) {
+        res.status(400).json({ success: false, error: 'appApiKey is required for chat operations. Set it via channel config or pass it in the request body.' } as ApiResponse);
+        return;
+      }
+      const response = await difyService.chat(instance, {
+        appId,
+        message,
+        conversationId,
+        userId
+      }, storedKey);
+      res.json({ success: true, data: response } as ApiResponse);
+      return;
+    }
+
     const response = await difyService.chat(instance, {
       appId,
       message,
       conversationId,
       userId
-    });
+    }, appApiKey);
 
     res.json({ success: true, data: response } as ApiResponse);
   } catch (error: any) {

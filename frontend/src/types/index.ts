@@ -39,6 +39,8 @@ export interface ChannelConfig {
   platform: 'dingtalk' | 'feishu' | 'wechat' | 'wecom';
   name: string;
   enabled: boolean;
+  difyInstanceId: string;
+  difyAppId: string;
   config: DingTalkConfig | FeishuConfig;
   createdAt: string;
   updatedAt: string;

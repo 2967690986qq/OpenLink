@@ -132,9 +132,9 @@ export class DingTalkService {
 
   decryptCallbackData(encryptStr: string, aesKey: string): string {
     const key = Buffer.from(aesKey + '=', 'base64');
-    const cipher = crypto.createCipheriv('aes-256-cbc', key, Buffer.alloc(16, 0));
-    let decrypted = cipher.update(encryptStr, 'utf8', 'utf8');
-    decrypted += cipher.final('utf8');
+    const decipher = crypto.createDecipheriv('aes-256-cbc', key, Buffer.alloc(16, 0));
+    let decrypted = decipher.update(encryptStr, 'utf8', 'utf8');
+    decrypted += decipher.final('utf8');
     return decrypted;
   }
 }

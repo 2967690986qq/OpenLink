@@ -54,12 +54,25 @@ export class FeishuService {
     try {
       const accessToken = await this.getTenantAccessToken(config);
 
+      // content should already be a JSON string matching the msg_type format.
+      // For 'text': JSON.stringify({ text: "..." })
+      // For 'post': JSON.stringify({ title, content: [[...]] })
+      // If content is a plain string and msgType is 'text', wrap it automatically.
+      let msgContent = content;
+      if (msgType === 'text') {
+        try {
+          JSON.parse(content);
+        } catch {
+          msgContent = JSON.stringify({ text: content });
+        }
+      }
+
       await axios.post(
         'https://open.feishu.cn/open-apis/im/v1/messages',
         {
           receive_id: receiveId,
           msg_type: msgType,
-          content: JSON.stringify({ text: content })
+          content: msgContent
         },
         {
           headers: {
@@ -70,7 +83,7 @@ export class FeishuService {
         }
       );
 
-      logger.info('Feishu message sent successfully', { receiveId });
+      logger.info('Feishu message sent successfully', { receiveId, msgType });
     } catch (error: any) {
       logger.error('Failed to send Feishu message', { error: error.message });
       throw new Error(`Failed to send message: ${error.message}`);
@@ -78,7 +91,7 @@ export class FeishuService {
   }
 
   async sendTextMessage(config: FeishuConfig, receiveId: string, text: string): Promise<void> {
-    await this.sendMessage(config, receiveId, 'text', text);
+    await this.sendMessage(config, receiveId, 'text', JSON.stringify({ text }));
   }
 
   async sendRichTextMessage(
@@ -107,9 +120,7 @@ export class FeishuService {
     const stringToSign = `${timestamp}${rawBody}`;
     const key = `${config.appId}${config.appSecret}`;
     const hmac = crypto.createHmac('sha256', key).update(stringToSign).digest('base64');
-
-    const expectedSignature = Buffer.from(hmac).toString('base64');
-    return expectedSignature === signature;
+    return hmac === signature;
   }
 
   async createWebhook(

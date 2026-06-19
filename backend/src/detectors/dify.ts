@@ -4,47 +4,65 @@ import logger from '../utils/logger.js';
 
 const COMMON_DIFY_PORTS = [80, 443, 8080, 3000, 5000, 8000, 9000];
 const COMMON_DIFY_PATHS = ['/', '/api/info', '/console/api/active-works'];
+const SCAN_TIMEOUT_MS = 2000;
 
 export class DifyDetector {
   async detectLocalServices(): Promise<DetectedService[]> {
-    const services: DetectedService[] = [];
     const hosts = [
       'localhost',
       '127.0.0.1',
       'host.docker.internal'
     ];
 
-    logger.info('Starting local Dify service detection...');
+    logger.info('Starting local Dify service detection (concurrent scan)...');
 
+    // Build all scan targets upfront
+    const scanTargets: { host: string; port: number; path: string; url: string }[] = [];
     for (const host of hosts) {
       for (const port of COMMON_DIFY_PORTS) {
         for (const path of COMMON_DIFY_PATHS) {
-          try {
-            const url = `http://${host}:${port}${path}`;
-            const response = await axios.get(url, {
-              timeout: 2000,
-              validateStatus: () => true
-            });
+          scanTargets.push({
+            host,
+            port,
+            path,
+            url: `http://${host}:${port}${path}`
+          });
+        }
+      }
+    }
 
-            if (this.isDifyService(response.headers, response.data)) {
-              const service: DetectedService = {
-                name: `Dify (${host}:${port})`,
-                type: 'dify',
-                url: `http://${host}:${port}`,
-                port,
-                status: 'running',
-                version: this.extractVersion(response.data)
-              };
+    // Scan all targets concurrently — worst case is now ~2s (single timeout)
+    // instead of ~126s (serial sum of all timeouts)
+    const results = await Promise.allSettled(
+      scanTargets.map(async (target) => {
+        const response = await axios.get(target.url, {
+          timeout: SCAN_TIMEOUT_MS,
+          validateStatus: () => true
+        });
 
-              const exists = services.some(s => s.url === service.url);
-              if (!exists) {
-                services.push(service);
-                logger.info(`Detected Dify service at ${url}`, { version: service.version });
-              }
-            }
-          } catch {
-            // Service not responding on this port/path combination
-          }
+        if (this.isDifyService(response.headers, response.data)) {
+          return {
+            name: `Dify (${target.host}:${target.port})`,
+            type: 'dify',
+            url: `http://${target.host}:${target.port}`,
+            port: target.port,
+            status: 'running',
+            version: this.extractVersion(response.data)
+          } as DetectedService;
+        }
+        return null;
+      })
+    );
+
+    // Collect successful detections, deduplicate by URL
+    const services: DetectedService[] = [];
+    for (const result of results) {
+      if (result.status === 'fulfilled' && result.value !== null) {
+        const service = result.value;
+        const exists = services.some(s => s.url === service.url);
+        if (!exists) {
+          services.push(service);
+          logger.info(`Detected Dify service at ${service.url}`, { version: service.version });
         }
       }
     }

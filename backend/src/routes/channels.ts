@@ -17,10 +17,10 @@ router.get('/', (_req: Request, res: Response) => {
 // Add a new channel
 router.post('/', (req: Request, res: Response) => {
   try {
-    const { platform, name, config } = req.body;
+    const { platform, name, config, difyInstanceId, difyAppId } = req.body;
 
-    if (!platform || !name || !config) {
-      res.status(400).json({ success: false, error: 'Missing required fields' } as ApiResponse);
+    if (!platform || !name || !config || !difyInstanceId || !difyAppId) {
+      res.status(400).json({ success: false, error: 'Missing required fields (platform, name, config, difyInstanceId, difyAppId)' } as ApiResponse);
       return;
     }
 
@@ -34,6 +34,8 @@ router.post('/', (req: Request, res: Response) => {
       platform,
       name,
       enabled: true,
+      difyInstanceId,
+      difyAppId,
       config,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
@@ -55,7 +57,7 @@ router.post('/', (req: Request, res: Response) => {
 router.put('/:id', (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { name, enabled, config } = req.body;
+    const { name, enabled, config, difyInstanceId, difyAppId } = req.body;
 
     const channels = configStore.get('channels');
     const index = channels.findIndex(c => c.id === id);
@@ -69,6 +71,8 @@ router.put('/:id', (req: Request, res: Response) => {
       ...channels[index],
       name: name || channels[index].name,
       enabled: enabled !== undefined ? enabled : channels[index].enabled,
+      difyInstanceId: difyInstanceId || channels[index].difyInstanceId,
+      difyAppId: difyAppId || channels[index].difyAppId,
       config: config || channels[index].config,
       updatedAt: new Date().toISOString()
     };
@@ -157,6 +161,75 @@ router.get('/:id/bot', async (req: Request, res: Response) => {
     }
   } catch (error: any) {
     logger.error('Failed to get bot info', { error: error.message });
+    res.status(500).json({ success: false, error: error.message } as ApiResponse);
+  }
+});
+
+// Set app API key for a channel's bound Dify app
+// This is required because Dify chat API (/v1/chat-messages) needs a per-app API key,
+// not the instance-level admin key.
+router.post('/:id/appApiKey', (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { appApiKey } = req.body;
+
+    if (!appApiKey) {
+      res.status(400).json({ success: false, error: 'Missing appApiKey' } as ApiResponse);
+      return;
+    }
+
+    const channels = configStore.get('channels');
+    const channel = channels.find(c => c.id === id);
+
+    if (!channel) {
+      res.status(404).json({ success: false, error: 'Channel not found' } as ApiResponse);
+      return;
+    }
+
+    const appApiKeys = configStore.get('appApiKeys');
+    appApiKeys[channel.difyAppId] = appApiKey;
+    configStore.set('appApiKeys', appApiKeys);
+
+    logger.info('App API key set for channel', { channelId: id, difyAppId: channel.difyAppId });
+    res.json({ success: true, message: 'App API key saved' } as ApiResponse);
+  } catch (error: any) {
+    logger.error('Failed to set app API key', { error: error.message });
+    res.status(500).json({ success: false, error: error.message } as ApiResponse);
+  }
+});
+
+// Get webhook URL for a channel (useful for configuring platform callback URLs)
+router.get('/:id/webhookUrl', (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const channels = configStore.get('channels');
+    const channel = channels.find(c => c.id === id);
+
+    if (!channel) {
+      res.status(404).json({ success: false, error: 'Channel not found' } as ApiResponse);
+      return;
+    }
+
+    const gatewayConfig = configStore.get('gateway');
+    const webhookUrl = `${gatewayConfig.host === '0.0.0.0' ? 'localhost' : gatewayConfig.host}:${gatewayConfig.port}/api/webhook/${channel.id}`;
+
+    res.json({
+      success: true,
+      data: {
+        channelId: channel.id,
+        platform: channel.platform,
+        webhookUrl,
+        // Platform-specific URLs
+        dingtalkUrl: channel.platform === 'dingtalk'
+          ? `${gatewayConfig.host === '0.0.0.0' ? 'localhost' : gatewayConfig.host}:${gatewayConfig.port}/api/webhook/dingtalk/${channel.id}`
+          : null,
+        feishuUrl: channel.platform === 'feishu'
+          ? `${gatewayConfig.host === '0.0.0.0' ? 'localhost' : gatewayConfig.host}:${gatewayConfig.port}/api/webhook/feishu/${channel.id}`
+          : null
+      }
+    } as ApiResponse);
+  } catch (error: any) {
+    logger.error('Failed to get webhook URL', { error: error.message });
     res.status(500).json({ success: false, error: error.message } as ApiResponse);
   }
 });
