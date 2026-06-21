@@ -1,237 +1,241 @@
 import { Router, Request, Response } from 'express';
-import { v4 as uuidv4 } from 'uuid';
-import { ChannelConfig, DingTalkConfig, FeishuConfig, ApiResponse } from '../types/index.js';
-import { dingTalkService } from '../services/dingtalk.js';
-import { feishuService } from '../services/feishu.js';
 import { configStore } from '../config/store.js';
-import logger from '../utils/logger.js';
+import { feishuService } from '../services/feishu/index.js';
+import * as dingtalkService from '../services/dingtalk/index.js';
+import * as weixinService from '../services/weixin.js';
+import type { ChannelConfig, FeishuConfig, DingTalkConfig, WeixinConfig } from '../types/index.js';
+import { v4 as uuidv4 } from 'uuid';
 
 const router = Router();
 
-// Get all channels
-router.get('/', (_req: Request, res: Response) => {
+/** 获取所有频道配置 */
+router.get('/', (req: Request, res: Response) => {
   const channels = configStore.get('channels');
-  res.json({ success: true, data: channels } as ApiResponse<ChannelConfig[]>);
+  res.json({
+    success: true,
+    data: channels,
+  });
 });
 
-// Add a new channel
-router.post('/', (req: Request, res: Response) => {
-  try {
-    const { platform, name, config, difyInstanceId, difyAppId } = req.body;
-
-    if (!platform || !name || !config || !difyInstanceId || !difyAppId) {
-      res.status(400).json({ success: false, error: 'Missing required fields (platform, name, config, difyInstanceId, difyAppId)' } as ApiResponse);
-      return;
-    }
-
-    if (!['dingtalk', 'feishu', 'wechat', 'wecom'].includes(platform)) {
-      res.status(400).json({ success: false, error: 'Invalid platform' } as ApiResponse);
-      return;
-    }
-
-    const channel: ChannelConfig = {
-      id: uuidv4(),
-      platform,
-      name,
-      enabled: true,
-      difyInstanceId,
-      difyAppId,
-      config,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
-
-    const channels = configStore.get('channels');
-    channels.push(channel);
-    configStore.set('channels', channels);
-
-    logger.info('Channel added', { id: channel.id, platform, name });
-    res.json({ success: true, data: channel } as ApiResponse<ChannelConfig>);
-  } catch (error: any) {
-    logger.error('Failed to add channel', { error: error.message });
-    res.status(500).json({ success: false, error: error.message } as ApiResponse);
+/** 获取单个频道配置 */
+router.get('/:id', (req: Request, res: Response) => {
+  const channels = configStore.get('channels');
+  const channel = channels.find((c) => c.id === req.params.id);
+  if (!channel) {
+    res.status(404).json({ success: false, error: '频道不存在' });
+    return;
   }
+  res.json({ success: true, data: channel });
 });
 
-// Update a channel
-router.put('/:id', (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const { name, enabled, config, difyInstanceId, difyAppId } = req.body;
+/** 创建频道 */
+router.post('/', async (req: Request, res: Response) => {
+  const { name, platform, config: platformConfig, knowledgeBaseId } = req.body || {};
 
-    const channels = configStore.get('channels');
-    const index = channels.findIndex(c => c.id === id);
-
-    if (index === -1) {
-      res.status(404).json({ success: false, error: 'Channel not found' } as ApiResponse);
-      return;
-    }
-
-    channels[index] = {
-      ...channels[index],
-      name: name || channels[index].name,
-      enabled: enabled !== undefined ? enabled : channels[index].enabled,
-      difyInstanceId: difyInstanceId || channels[index].difyInstanceId,
-      difyAppId: difyAppId || channels[index].difyAppId,
-      config: config || channels[index].config,
-      updatedAt: new Date().toISOString()
-    };
-
-    configStore.set('channels', channels);
-    logger.info('Channel updated', { id });
-    res.json({ success: true, data: channels[index] } as ApiResponse<ChannelConfig>);
-  } catch (error: any) {
-    logger.error('Failed to update channel', { error: error.message });
-    res.status(500).json({ success: false, error: error.message } as ApiResponse);
+  if (!name || !platform || !platformConfig || !knowledgeBaseId) {
+    res.status(400).json({ success: false, error: '缺少必填参数: name, platform, config, knowledgeBaseId' });
+    return;
   }
-});
 
-// Delete a channel
-router.delete('/:id', (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const channels = configStore.get('channels');
-    const filtered = channels.filter(c => c.id !== id);
-
-    if (filtered.length === channels.length) {
-      res.status(404).json({ success: false, error: 'Channel not found' } as ApiResponse);
-      return;
-    }
-
-    configStore.set('channels', filtered);
-    logger.info('Channel deleted', { id });
-    res.json({ success: true, message: 'Channel deleted' } as ApiResponse);
-  } catch (error: any) {
-    logger.error('Failed to delete channel', { error: error.message });
-    res.status(500).json({ success: false, error: error.message } as ApiResponse);
+  if (!['feishu', 'dingtalk', 'weixin', 'wecom'].includes(platform)) {
+    res.status(400).json({ success: false, error: `不支持的平台: ${platform}` });
+    return;
   }
-});
 
-// Test channel connection
-router.post('/:id/test', async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const channels = configStore.get('channels');
-    const channel = channels.find(c => c.id === id);
-
-    if (!channel) {
-      res.status(404).json({ success: false, error: 'Channel not found' } as ApiResponse);
-      return;
-    }
-
-    if (channel.platform === 'dingtalk') {
-      const config = channel.config as DingTalkConfig;
-      await dingTalkService.getAccessToken(config);
-      res.json({ success: true, message: 'DingTalk connection successful' } as ApiResponse);
-    } else if (channel.platform === 'feishu') {
-      const config = channel.config as FeishuConfig;
-      await feishuService.getTenantAccessToken(config);
-      res.json({ success: true, message: 'Feishu connection successful' } as ApiResponse);
-    } else {
-      res.status(400).json({ success: false, error: 'Unsupported platform' } as ApiResponse);
-    }
-  } catch (error: any) {
-    logger.error('Channel test failed', { error: error.message });
-    res.status(500).json({ success: false, error: error.message } as ApiResponse);
+  // 验证知识库是否存在
+  const knowledgeBases = configStore.get('knowledgeBases');
+  if (!knowledgeBases.find((kb) => kb.id === knowledgeBaseId)) {
+    res.status(400).json({ success: false, error: '知识库配置不存在' });
+    return;
   }
-});
 
-// Get bot info for a channel
-router.get('/:id/bot', async (req: Request, res: Response) => {
+  const newChannel: ChannelConfig = {
+    id: uuidv4(),
+    name,
+    platform,
+    enabled: true,
+    knowledgeBaseId,
+    config: platformConfig,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  // 保存
+  const channels = configStore.get('channels');
+  channels.push(newChannel);
+  configStore.set('channels', channels);
+
+  // 自动启动频道连接
   try {
-    const { id } = req.params;
-    const channels = configStore.get('channels');
-    const channel = channels.find(c => c.id === id);
-
-    if (!channel) {
-      res.status(404).json({ success: false, error: 'Channel not found' } as ApiResponse);
-      return;
+    if (platform === 'feishu') {
+      await feishuService.startChannel(newChannel.id, (newChannel.config as FeishuConfig));
+    } else if (platform === 'dingtalk') {
+      await dingtalkService.startChannel(newChannel.id, (newChannel.config as DingTalkConfig));
+    } else if (platform === 'weixin') {
+      weixinService.startChannel(newChannel.id, (newChannel.config as WeixinConfig));
     }
-
-    if (channel.platform === 'dingtalk') {
-      const config = channel.config as DingTalkConfig;
-      const token = await dingTalkService.getAccessToken(config);
-      res.json({ success: true, data: { platform: 'dingtalk', token } } as ApiResponse);
-    } else if (channel.platform === 'feishu') {
-      const config = channel.config as FeishuConfig;
-      const botInfo = await feishuService.getBotInfo(config);
-      res.json({ success: true, data: { platform: 'feishu', ...botInfo } } as ApiResponse);
-    } else {
-      res.status(400).json({ success: false, error: 'Unsupported platform' } as ApiResponse);
-    }
-  } catch (error: any) {
-    logger.error('Failed to get bot info', { error: error.message });
-    res.status(500).json({ success: false, error: error.message } as ApiResponse);
+  } catch (err: any) {
+    // 仅记录错误，不阻止创建
+    console.error(`频道启动失败: ${err.message}`);
   }
+
+  res.json({ success: true, data: newChannel });
 });
 
-// Set app API key for a channel's bound Dify app
-// This is required because Dify chat API (/v1/chat-messages) needs a per-app API key,
-// not the instance-level admin key.
-router.post('/:id/appApiKey', (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const { appApiKey } = req.body;
-
-    if (!appApiKey) {
-      res.status(400).json({ success: false, error: 'Missing appApiKey' } as ApiResponse);
-      return;
-    }
-
-    const channels = configStore.get('channels');
-    const channel = channels.find(c => c.id === id);
-
-    if (!channel) {
-      res.status(404).json({ success: false, error: 'Channel not found' } as ApiResponse);
-      return;
-    }
-
-    const appApiKeys = configStore.get('appApiKeys');
-    appApiKeys[channel.difyAppId] = appApiKey;
-    configStore.set('appApiKeys', appApiKeys);
-
-    logger.info('App API key set for channel', { channelId: id, difyAppId: channel.difyAppId });
-    res.json({ success: true, message: 'App API key saved' } as ApiResponse);
-  } catch (error: any) {
-    logger.error('Failed to set app API key', { error: error.message });
-    res.status(500).json({ success: false, error: error.message } as ApiResponse);
+/** 更新频道 */
+router.put('/:id', async (req: Request, res: Response) => {
+  const channels = configStore.get('channels');
+  const channel = channels.find((c) => c.id === req.params.id);
+  if (!channel) {
+    res.status(404).json({ success: false, error: '频道不存在' });
+    return;
   }
-});
 
-// Get webhook URL for a channel (useful for configuring platform callback URLs)
-router.get('/:id/webhookUrl', (req: Request, res: Response) => {
+  const { name, enabled, config: platformConfig, knowledgeBaseId } = req.body || {};
+
+  if (name !== undefined) channel.name = name;
+  if (enabled !== undefined) channel.enabled = enabled;
+  if (platformConfig !== undefined) channel.config = platformConfig;
+  if (knowledgeBaseId !== undefined) channel.knowledgeBaseId = knowledgeBaseId;
+  channel.updatedAt = new Date().toISOString();
+
+  configStore.set('channels', channels);
+
+  // 重启连接
   try {
-    const { id } = req.params;
-    const channels = configStore.get('channels');
-    const channel = channels.find(c => c.id === id);
-
-    if (!channel) {
-      res.status(404).json({ success: false, error: 'Channel not found' } as ApiResponse);
-      return;
-    }
-
-    const gatewayConfig = configStore.get('gateway');
-    const webhookUrl = `${gatewayConfig.host === '0.0.0.0' ? 'localhost' : gatewayConfig.host}:${gatewayConfig.port}/api/webhook/${channel.id}`;
-
-    res.json({
-      success: true,
-      data: {
-        channelId: channel.id,
-        platform: channel.platform,
-        webhookUrl,
-        // Platform-specific URLs
-        dingtalkUrl: channel.platform === 'dingtalk'
-          ? `${gatewayConfig.host === '0.0.0.0' ? 'localhost' : gatewayConfig.host}:${gatewayConfig.port}/api/webhook/dingtalk/${channel.id}`
-          : null,
-        feishuUrl: channel.platform === 'feishu'
-          ? `${gatewayConfig.host === '0.0.0.0' ? 'localhost' : gatewayConfig.host}:${gatewayConfig.port}/api/webhook/feishu/${channel.id}`
-          : null
+    if (channel.platform === 'feishu') {
+      await feishuService.stopChannel(channel.id);
+      if (channel.enabled) {
+        await feishuService.startChannel(channel.id, (channel.config as FeishuConfig));
       }
-    } as ApiResponse);
-  } catch (error: any) {
-    logger.error('Failed to get webhook URL', { error: error.message });
-    res.status(500).json({ success: false, error: error.message } as ApiResponse);
+    } else if (channel.platform === 'dingtalk') {
+      await dingtalkService.stopChannel(channel.id);
+      if (channel.enabled) {
+        await dingtalkService.startChannel(channel.id, (channel.config as DingTalkConfig));
+      }
+    } else if (channel.platform === 'weixin') {
+      weixinService.stopChannel(channel.id);
+      if (channel.enabled) {
+        weixinService.startChannel(channel.id, (channel.config as WeixinConfig));
+      }
+    }
+  } catch (err: any) {
+    console.error(`频道重启失败: ${err.message}`);
   }
+
+  res.json({ success: true, data: channel });
+});
+
+/** 删除频道 */
+router.delete('/:id', async (req: Request, res: Response) => {
+  const channels = configStore.get('channels');
+  const channel = channels.find((c) => c.id === req.params.id);
+  if (!channel) {
+    res.status(404).json({ success: false, error: '频道不存在' });
+    return;
+  }
+
+  // 停止频道连接
+  try {
+    if (channel.platform === 'feishu') {
+      await feishuService.stopChannel(channel.id);
+    } else if (channel.platform === 'dingtalk') {
+      await dingtalkService.stopChannel(channel.id);
+    } else if (channel.platform === 'weixin') {
+      weixinService.stopChannel(channel.id);
+    }
+  } catch (err: any) {
+    console.error(`停止频道失败: ${err.message}`);
+  }
+
+  const updatedChannels = channels.filter((c) => c.id !== req.params.id);
+  configStore.set('channels', updatedChannels);
+  res.json({ success: true });
+});
+
+/** 测试频道连接 */
+router.post('/:id/test', async (req: Request, res: Response) => {
+  const channels = configStore.get('channels') as any[];
+  const channel = channels.find((c) => c.id === req.params.id);
+  if (!channel) {
+    res.status(404).json({ success: false, error: '频道不存在' });
+    return;
+  }
+
+  try {
+    let connected = false;
+    if (channel.platform === 'feishu') {
+      const result = await feishuService.testConnection(channel.config as FeishuConfig);
+      connected = result?.success === true;
+    } else if (channel.platform === 'dingtalk') {
+      connected = await dingtalkService.testConnection(channel.config as DingTalkConfig);
+    } else if (channel.platform === 'weixin') {
+      connected = true;
+    }
+
+    res.json({ success: connected, message: connected ? '连接测试成功' : '连接测试失败' });
+  } catch (err: any) {
+    res.json({ success: false, error: err.message });
+  }
+});
+
+/** 直接测试平台配置（不保存） */
+router.post('/test/:platform', async (req: Request, res: Response) => {
+  const platform = req.params.platform;
+  const config = req.body;
+
+  try {
+    if (platform === 'feishu') {
+      const result = await feishuService.testConnection(config as FeishuConfig);
+      res.json({ success: result?.success === true, message: result?.message || (result?.success ? '飞书配置验证成功' : '飞书配置验证失败') });
+    } else if (platform === 'dingtalk') {
+      const ok = await dingtalkService.testConnection(config as DingTalkConfig);
+      res.json({ success: ok, message: ok ? '钉钉配置验证成功' : '钉钉配置验证失败' });
+    } else if (platform === 'weixin') {
+      res.json({ success: true, message: '微信通过扫码配置' });
+    } else {
+      res.status(400).json({ success: false, error: `不支持的平台: ${platform}` });
+    }
+  } catch (err: any) {
+    res.json({ success: false, error: err.message });
+  }
+});
+
+// ============ 微信扫码相关 API ============
+
+/** 生成微信二维码 */
+router.post('/weixin/qrcode', async (req: Request, res: Response) => {
+  const { sessionId, baseUrl } = req.body || {};
+  const sid = sessionId || uuidv4();
+
+  try {
+    const result = await weixinService.generateQrCode(sid, baseUrl);
+    res.json({ success: true, data: { sessionId: sid, ...result } });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/** 轮询微信扫码状态 */
+router.post('/weixin/poll-status', async (req: Request, res: Response) => {
+  const { sessionId } = req.body || {};
+  if (!sessionId) {
+    res.status(400).json({ success: false, error: '缺少 sessionId' });
+    return;
+  }
+
+  try {
+    const result = await weixinService.pollQrStatus(sessionId);
+    res.json({ success: true, data: result });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/** 停止微信扫码会话 */
+router.post('/weixin/stop-qr/:sessionId', (req: Request, res: Response) => {
+  weixinService.stopQrSession(req.params.sessionId);
+  res.json({ success: true });
 });
 
 export default router;

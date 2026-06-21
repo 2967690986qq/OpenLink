@@ -2,12 +2,13 @@ import { useState, useEffect } from 'react';
 import { configApi } from '../api';
 import type { GatewayConfig } from '../types';
 import { toast } from 'sonner';
-import { Save, RotateCcw, Server, Globe, Bug, Key } from 'lucide-react';
+import { Save, RotateCcw, Server, Globe, Bug, Key, RefreshCw } from 'lucide-react';
 
 export default function SettingsPage() {
   const [config, setConfig] = useState<GatewayConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [restarting, setRestarting] = useState(false);
 
   useEffect(() => { loadConfig(); }, []);
 
@@ -32,6 +33,23 @@ export default function SettingsPage() {
       toast.error('保存失败');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleRestart = async () => {
+    if (!config) return;
+    if (!confirm('确认重启服务？重启期间服务将短暂不可用。')) return;
+    setRestarting(true);
+    try {
+      await configApi.restart();
+      toast.success('服务正在重启，请稍候...');
+      setTimeout(() => {
+        // Wait for the new server to come up, then reload
+        window.location.href = `http://${config.host}:${config.port}/ui/`;
+      }, 3000);
+    } catch (err: any) {
+      setRestarting(false);
+      toast.error(err.response?.data?.error || '重启失败');
     }
   };
 
@@ -72,11 +90,13 @@ export default function SettingsPage() {
             </label>
             <input className="form-input" value={config.host}
               onChange={e => setConfig({ ...config, host: e.target.value })} />
+            <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 3 }}>修改后需重启服务生效</div>
           </div>
           <div className="form-group">
             <label className="form-label">监听端口</label>
             <input type="number" className="form-input" value={config.port}
               onChange={e => setConfig({ ...config, port: parseInt(e.target.value) })} />
+            <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 3 }}>修改后需重启服务生效</div>
           </div>
         </div>
 
@@ -126,10 +146,14 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+        <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
           <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
             <Save size={14} />
             {saving ? '保存中...' : '保存设置'}
+          </button>
+          <button className="btn btn-outline" onClick={handleRestart} disabled={restarting}>
+            <RefreshCw size={14} className={restarting ? 'spinning' : ''} />
+            {restarting ? '重启中...' : '重启服务'}
           </button>
           <button className="btn btn-outline" onClick={handleReset}>
             <RotateCcw size={14} />

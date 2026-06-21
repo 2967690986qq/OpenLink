@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import type { GatewayConfig, DifyConfig, ChannelConfig } from '../types/index.js';
+import type { GatewayConfig, KnowledgeBaseConfig, ChannelConfig } from '../types/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -11,9 +11,8 @@ const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 
 export interface StoreConfig {
   gateway: GatewayConfig;
-  difyInstances: DifyConfig[];
+  knowledgeBases: KnowledgeBaseConfig[];
   channels: ChannelConfig[];
-  appApiKeys: Record<string, string>;
 }
 
 const defaultConfig: StoreConfig = {
@@ -23,10 +22,48 @@ const defaultConfig: StoreConfig = {
     corsOrigins: ['http://localhost:5173', 'http://localhost:3001'],
     logLevel: 'info'
   },
-  difyInstances: [],
-  channels: [],
-  appApiKeys: {}
+  knowledgeBases: [],
+  channels: []
 };
+
+function migrateConfig(data: any): StoreConfig {
+  const result: StoreConfig = {
+    gateway: data.gateway || defaultConfig.gateway,
+    knowledgeBases: [],
+    channels: []
+  };
+
+  if (Array.isArray(data.knowledgeBases) && data.knowledgeBases.length > 0) {
+    result.knowledgeBases = data.knowledgeBases;
+  } else if (Array.isArray(data.difyInstances) && data.difyInstances.length > 0) {
+    result.knowledgeBases = data.difyInstances.map((inst: any) => ({
+      id: inst.id,
+      name: inst.name,
+      type: 'dify',
+      baseUrl: inst.baseUrl,
+      apiKey: inst.apiKey,
+      description: inst.description || '',
+      enabled: inst.enabled !== undefined ? inst.enabled : true,
+      createdAt: inst.createdAt || new Date().toISOString(),
+      updatedAt: inst.updatedAt || new Date().toISOString()
+    }));
+  }
+
+  if (Array.isArray(data.channels) && data.channels.length > 0) {
+    result.channels = data.channels.map((ch: any) => ({
+      id: ch.id,
+      platform: ch.platform,
+      name: ch.name,
+      enabled: ch.enabled !== undefined ? ch.enabled : true,
+      knowledgeBaseId: ch.knowledgeBaseId || ch.difyInstanceId || '',
+      config: ch.config || {},
+      createdAt: ch.createdAt || new Date().toISOString(),
+      updatedAt: ch.updatedAt || new Date().toISOString()
+    }));
+  }
+
+  return result;
+}
 
 class ConfigStore {
   private config: StoreConfig;
@@ -41,14 +78,14 @@ class ConfigStore {
         fs.mkdirSync(CONFIG_DIR, { recursive: true });
       }
       if (fs.existsSync(CONFIG_FILE)) {
-        const data = fs.readFileSync(CONFIG_FILE, 'utf-8');
-        return { ...defaultConfig, ...JSON.parse(data) };
+        const data = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
+        return migrateConfig(data);
       }
     } catch (error) {
       console.error('Failed to load config:', error);
     }
     this.saveConfig(defaultConfig);
-    return defaultConfig;
+    return JSON.parse(JSON.stringify(defaultConfig));
   }
 
   private saveConfig(config: StoreConfig): void {

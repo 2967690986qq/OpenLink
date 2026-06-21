@@ -1,8 +1,12 @@
-export interface DifyConfig {
+export type KnowledgeBaseType = 'dify' | 'ragflow';
+
+export interface KnowledgeBaseConfig {
   id: string;
   name: string;
+  type: KnowledgeBaseType;
   baseUrl: string;
   apiKey: string;
+  description?: string;
   enabled: boolean;
   createdAt: string;
   updatedAt: string;
@@ -14,10 +18,11 @@ export interface DifyApp {
   description?: string;
   icon?: string;
   status: 'normal' | 'archived';
+  mode?: string;
 }
 
 export interface ChatRequest {
-  appId: string;
+  knowledgeBaseId: string;
   message: string;
   conversationId?: string;
   userId?: string;
@@ -36,12 +41,11 @@ export interface ChatResponse {
 
 export interface ChannelConfig {
   id: string;
-  platform: 'dingtalk' | 'feishu' | 'wechat' | 'wecom';
+  platform: 'dingtalk' | 'feishu' | 'weixin' | 'wecom';
   name: string;
   enabled: boolean;
-  difyInstanceId: string;
-  difyAppId: string;
-  config: DingTalkConfig | FeishuConfig;
+  knowledgeBaseId: string;
+  config: DingTalkConfig | FeishuConfig | WeixinConfig;
   createdAt: string;
   updatedAt: string;
 }
@@ -50,25 +54,29 @@ export interface DingTalkConfig {
   clientId: string;
   clientSecret: string;
   botAppId?: string;
+  connectionMode?: 'stream' | 'webhook';
   webhookUrl?: string;
   signatureSecret?: string;
+  dedupWindowMs?: number;
+  responseMode?: 'blocking' | 'streaming';
 }
 
 export interface FeishuConfig {
   appId: string;
   appSecret: string;
   botName?: string;
-  webhookUrl?: string;
+  connectionMode?: 'websocket' | 'webhook';
   verificationToken?: string;
+  encryptKey?: string;
+  dedupWindowMs?: number;
+  responseMode?: 'blocking' | 'streaming';
 }
 
-export interface DetectedService {
-  name: string;
-  type: 'dify' | 'unknown';
-  url: string;
-  port: number;
-  status: 'running' | 'stopped';
-  version?: string;
+export interface WeixinConfig {
+  accountId: string;
+  token: string;
+  baseUrl?: string;
+  dedupWindowMs?: number;
 }
 
 export interface ApiResponse<T = any> {

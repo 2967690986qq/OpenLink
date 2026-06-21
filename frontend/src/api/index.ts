@@ -1,14 +1,11 @@
 import axios from 'axios';
-import type { DifyConfig, DifyApp, ChannelConfig, DetectedService, ApiResponse, ChatRequest, ChatResponse } from '../types';
+import type { KnowledgeBaseConfig, ChannelConfig, ChatResponse, ApiResponse } from '../types';
 
 const api = axios.create({
   baseURL: '/api',
   timeout: 30000
 });
 
-// Auto-attach auth token from localStorage to every admin API request.
-// The token is set by the user in Settings or during initial setup.
-// If no token is stored, requests go through without auth header (open mode).
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('openlink_auth_token');
   if (token) {
@@ -18,45 +15,41 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// On 401/403 responses, redirect to a token setup prompt
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401 || error.response?.status === 403) {
-      // Store the error info so the UI can show a token setup dialog
       localStorage.setItem('openlink_auth_error', error.response?.data?.error || 'Authentication required');
     }
     return Promise.reject(error);
   }
 );
 
-// Dify APIs
-export const difyApi = {
-  list: () => api.get<ApiResponse<DifyConfig[]>>('/dify'),
+export const knowledgeBaseApi = {
+  list: () => api.get<ApiResponse<KnowledgeBaseConfig[]>>('/knowledge-base'),
 
-  detect: () => api.get<ApiResponse<DetectedService[]>>('/dify/detect'),
+  create: (data: { name: string; type: string; baseUrl: string; apiKey: string; description?: string }) =>
+    api.post<ApiResponse<KnowledgeBaseConfig>>('/knowledge-base', data),
 
-  create: (data: { name: string; baseUrl: string; apiKey: string }) =>
-    api.post<ApiResponse<DifyConfig>>('/dify', data),
+  update: (id: string, data: Partial<KnowledgeBaseConfig>) =>
+    api.put<ApiResponse<KnowledgeBaseConfig>>(`/knowledge-base/${id}`, data),
 
-  update: (id: string, data: Partial<DifyConfig>) =>
-    api.put<ApiResponse<DifyConfig>>(`/dify/${id}`, data),
+  delete: (id: string) => api.delete<ApiResponse>(`/knowledge-base/${id}`),
 
-  delete: (id: string) => api.delete<ApiResponse>(`/dify/${id}`),
+  test: (id: string) => api.post<ApiResponse>(`/knowledge-base/${id}/test`),
 
-  test: (id: string) => api.post<ApiResponse>(`/dify/${id}/test`),
+  // Test connection using config data directly (without saving first)
+  testConnection: (data: { type: string; baseUrl: string; apiKey: string }) =>
+    api.post<ApiResponse>(`/knowledge-base/test-connection`, data),
 
-  listApps: (id: string) => api.get<ApiResponse<DifyApp[]>>(`/dify/${id}/apps`),
-
-  chat: (id: string, data: ChatRequest) =>
-    api.post<ApiResponse<ChatResponse>>(`/dify/${id}/chat`, data)
+  chat: (id: string, data: { message: string; conversationId?: string; userId?: string }) =>
+    api.post<ApiResponse<ChatResponse>>(`/knowledge-base/${id}/chat`, data)
 };
 
-// Channel APIs
 export const channelApi = {
   list: () => api.get<ApiResponse<ChannelConfig[]>>('/channels'),
 
-  create: (data: { platform: string; name: string; difyInstanceId: string; difyAppId: string; config: any; appApiKey?: string }) =>
+  create: (data: { platform: string; name: string; knowledgeBaseId: string; config: any }) =>
     api.post<ApiResponse<ChannelConfig>>('/channels', data),
 
   update: (id: string, data: Partial<ChannelConfig>) =>
@@ -66,15 +59,33 @@ export const channelApi = {
 
   test: (id: string) => api.post<ApiResponse>(`/channels/${id}/test`),
 
+  testPlatform: (platform: string, config: any) =>
+    api.post<ApiResponse>(`/channels/test/${platform}`, config),
+
   getBot: (id: string) => api.get<ApiResponse>(`/channels/${id}/bot`),
 
-  setAppApiKey: (id: string, appApiKey: string) =>
-    api.post<ApiResponse>(`/channels/${id}/appApiKey`, { appApiKey }),
+  getWebhookUrl: (id: string) => api.get<ApiResponse>(`/channels/${id}/webhookUrl`),
 
-  getWebhookUrl: (id: string) => api.get<ApiResponse>(`/channels/${id}/webhookUrl`)
+  // 微信扫码相关
+  generateQrCode: (baseUrl?: string) =>
+    api.post<ApiResponse<{ sessionId: string; qrcode: string; qrcodeUrl: string; baseUrl: string }>>(
+      '/channels/weixin/qrcode',
+      { baseUrl }
+    ),
+
+  pollQrStatus: (sessionId: string) =>
+    api.post<ApiResponse<{
+      status: 'pending' | 'scanned' | 'confirmed' | 'expired' | 'error';
+      message?: string;
+      account_id?: string;
+      token?: string;
+      base_url?: string;
+    }>>('/channels/weixin/poll-status', { sessionId }),
+
+  stopQrSession: (sessionId: string) =>
+    api.post<ApiResponse>(`/channels/weixin/stop-qr/${sessionId}`)
 };
 
-// Config APIs
 export const configApi = {
   get: () => api.get<ApiResponse>('/config'),
 
@@ -82,7 +93,9 @@ export const configApi = {
 
   getAll: () => api.get<ApiResponse>('/config/all'),
 
-  reset: () => api.post<ApiResponse>('/config/reset', { confirm: true })
+  reset: () => api.post<ApiResponse>('/config/reset', { confirm: true }),
+
+  restart: () => api.post<ApiResponse>('/config/restart')
 };
 
 export default api;

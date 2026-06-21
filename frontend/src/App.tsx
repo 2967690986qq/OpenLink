@@ -1,13 +1,11 @@
 import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom';
 import { Toaster, toast } from 'sonner';
 import { useState, useEffect } from 'react';
-import DifyPage from './pages/DifyPage';
+import KnowledgeBasePage from './pages/KnowledgeBasePage';
 import ChannelsPage from './pages/ChannelsPage';
 import SettingsPage from './pages/SettingsPage';
-import DetectPage from './pages/DetectPage';
 import {
-  Server,
-  Radio,
+  Database,
   MessageSquare,
   Settings,
   Sun,
@@ -43,7 +41,7 @@ function App() {
         <aside className="sidebar">
           <div className="sidebar-logo">
             <div className="sidebar-logo-icon">
-              <Server size={16} color="white" />
+              <Database size={16} color="white" />
             </div>
             OpenLink
           </div>
@@ -56,19 +54,8 @@ function App() {
                   `sidebar-nav-item ${isActive ? 'active' : ''}`
                 }
               >
-                <Server size={18} />
-                Dify 实例
-              </NavLink>
-            </li>
-            <li>
-              <NavLink
-                to="/detect"
-                className={({ isActive }) =>
-                  `sidebar-nav-item ${isActive ? 'active' : ''}`
-                }
-              >
-                <Radio size={18} />
-                服务检测
+                <Database size={18} />
+                知识库配置
               </NavLink>
             </li>
             <li>
@@ -108,8 +95,7 @@ function App() {
         {/* Main Content */}
         <main className="main-content">
           <Routes>
-            <Route path="/" element={<DifyPage />} />
-            <Route path="/detect" element={<DetectPage />} />
+            <Route path="/" element={<KnowledgeBasePage />} />
             <Route path="/channels" element={<ChannelsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Routes>

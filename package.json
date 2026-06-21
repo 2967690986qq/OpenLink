@@ -35,5 +35,8 @@
   "devDependencies": {
     "concurrently": "^8.2.2",
     "tsx": "^4.7.1"
+  },
+  "dependencies": {
+    "dingtalk-stream": "^2.1.6-beta.1"
   }
 }
